@@ -29,8 +29,12 @@ jobs:
       - name: Build exe (no console)
         run: uv run pyinstaller --noconsole --onefile --name "atmob-image" src/atmob_pillow/main.py
 
+      - name: List dist outputs
+        run: pwsh -NoProfile -Command "Get-ChildItem -Force dist | Format-Table -AutoSize | Out-String -Width 300 | Write-Host"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: atmob-image
-          path: dist/星檬-图片缩放工具.exe
+          name: atmob-image-windows
+          path: dist/atmob-image.exe
+          if-no-files-found: error
