@@ -27,10 +27,10 @@ jobs:
         run: uv pip install -e . pyinstaller
 
       - name: Build exe (no console)
-        run: uv run pyinstaller --noconsole --onefile --name "星檬-图片缩放工具" src/atmob_pillow/main.py
+        run: uv run pyinstaller --noconsole --onefile --name "atmob-image" src/atmob_pillow/main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 星檬-图片缩放工具
+          name: atmob-image
           path: dist/星檬-图片缩放工具.exe
