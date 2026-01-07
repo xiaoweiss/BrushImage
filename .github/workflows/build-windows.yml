@@ -1,0 +1,36 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create venv
+        run: uv venv --python 3.12
+
+      - name: Install dependencies
+        run: uv pip install -e . pyinstaller
+
+      - name: Build exe (no console)
+        run: uv run pyinstaller --noconsole --onefile --name "图片尺寸调整" -m atmob_pillow.main
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 图片尺寸调整-windows
+          path: dist/图片尺寸调整.exe
