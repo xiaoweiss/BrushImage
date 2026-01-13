@@ -27,7 +27,7 @@ jobs:
         run: uv pip install -e . pyinstaller
 
       - name: Build exe (no console)
-        run: uv run pyinstaller --noconsole --onefile --name "atmob-image" src/atmob_pillow/entrypoint.py
+        run: uv run pyinstaller --noconsole --onefile --name "atmob-image" --hidden-import music21 src/atmob_pillow/entrypoint.py
 
       - name: List dist outputs
         run: pwsh -NoProfile -Command "Get-ChildItem -Force dist | Format-Table -AutoSize | Out-String -Width 300 | Write-Host"

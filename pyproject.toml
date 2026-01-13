@@ -1,12 +1,13 @@
 [project]
 name = "atmob-pillow"
 version = "0.1.0"
-description = "MVP image batch resize tool (PySide6 + Pillow)"
+description = "MVP image/audio/midi batch tool (PySide6 + Pillow + ffmpeg + music21)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "pyside6>=6.6",
   "pillow>=10.0",
+  "music21>=9.0",
 ]
 
 [project.scripts]

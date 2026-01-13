@@ -62,13 +62,38 @@ class AudioConvertTask:
         self.volume_db: str = ""  # e.g. "-10dB"，空表示无更改
         self.cut_start: str = ""  # "HH:MM:SS" 或 "SS"，空表示无
         self.cut_end: str = ""  # "HH:MM:SS" 或 "SS"，空表示无
+        self.input_filter_mode: str = "all"  # all/only_mp3/only_wav/custom
+        self.input_filter_custom: str = ""  # e.g. "mp3,wav,flac"
 
     def accept_file(self, file_path: Path) -> bool:
-        return file_path.suffix.lower() in AUDIO_EXTENSIONS
+        suffix = file_path.suffix.lower()
+        if suffix not in AUDIO_EXTENSIONS:
+            return False
+
+        mode = (self.input_filter_mode or "all").lower()
+        if mode == "only_mp3":
+            return suffix == ".mp3"
+        if mode == "only_wav":
+            return suffix == ".wav"
+        if mode == "custom":
+            raw = self.input_filter_custom or ""
+            exts = set()
+            for part in raw.split(","):
+                p = part.strip().lower()
+                if not p:
+                    continue
+                if not p.startswith("."):
+                    p = "." + p
+                exts.add(p)
+            # 自定义为空则视为不过滤
+            return (not exts) or (suffix in exts)
+
+        return True
 
     def _build_output_path(self, input_path: Path, output_dir: Path) -> Path:
         out_ext = (self.output_format or "mp3").lower().lstrip(".")
-        return Path(output_dir) / f"{input_path.stem}_converted.{out_ext}"
+        # 方案A：输出文件名包含源文件名全名，避免 stem 冲突
+        return Path(output_dir) / f"{input_path.name}_converted.{out_ext}"
 
     def process_one(self, input_path: Path, output_dir: Path) -> TaskResult:
         if shutil.which("ffmpeg") is None:

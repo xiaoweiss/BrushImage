@@ -381,7 +381,9 @@ class MainWindow(QMainWindow):
                 f"cut={cut_str}"
             )
         elif task_id == "midi.to_xml":
-            self._append_log("参数: 无")
+            quant_mode = params.get("quantize_mode", "off")
+            remove_rests = params.get("remove_tiny_rests", False)
+            self._append_log(f"参数: 量化={quant_mode}, 去除小休止符={'是' if remove_rests else '否'}")
 
         self.btn_start.setEnabled(False)
         self.btn_pick_input.setEnabled(False)
