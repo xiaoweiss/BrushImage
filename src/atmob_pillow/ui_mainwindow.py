@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from .tasks.registry import list_task_infos
 from .ui.tool_audio_convert import AudioConvertToolWidget
+from .ui.tool_image_convert import ImageConvertToolWidget
 from .ui.tool_image_resize import ImageResizeToolWidget
 from .ui.tool_midi_to_xml import MidiToXmlToolWidget
 from .worker import Worker
@@ -207,10 +208,15 @@ class MainWindow(QMainWindow):
         self.params_stack = QStackedWidget()
         params_outer.addWidget(self.params_stack)
 
-        # 页面：图片
+        # 页面：图片尺寸
         self.image_resize_widget = ImageResizeToolWidget()
-        idx_img = self.params_stack.addWidget(self.image_resize_widget)
-        self._page_index_by_task_id["image.resize"] = idx_img
+        idx_img_resize = self.params_stack.addWidget(self.image_resize_widget)
+        self._page_index_by_task_id["image.resize"] = idx_img_resize
+
+        # 页面：图片转换
+        self.image_convert_widget = ImageConvertToolWidget()
+        idx_img_convert = self.params_stack.addWidget(self.image_convert_widget)
+        self._page_index_by_task_id["image.convert"] = idx_img_convert
 
         # 页面：音频
         self.audio_convert_widget = AudioConvertToolWidget()
@@ -335,6 +341,8 @@ class MainWindow(QMainWindow):
             if params.get("target_w", 0) <= 0 and params.get("target_h", 0) <= 0:
                 QMessageBox.warning(self, "提示", "请至少设置宽度或高度其中一个（0 表示不限制）。")
                 return
+        elif task_id == "image.convert":
+            params = self.image_convert_widget.get_params()
         elif task_id == "audio.convert":
             params = self.audio_convert_widget.get_params()
 
@@ -358,6 +366,10 @@ class MainWindow(QMainWindow):
         if task_id == "image.resize":
             self._append_log(
                 f"参数: width={params['target_w']}, height={params['target_h']}, quality={params['quality']}"
+            )
+        elif task_id == "image.convert":
+            self._append_log(
+                f"参数: filter={params['input_filter_mode']}, out={params['output_format']}, quality={params['quality']}, conc={params['concurrency']}"
             )
         elif task_id == "audio.convert":
             codec = params.get("audio_codec") or "自动"
