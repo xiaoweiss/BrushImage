@@ -30,7 +30,7 @@ class MidiToXmlTask:
             out_dir = Path(output_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            out_path = out_dir / f"{input_path.stem}.xml"
+            out_path = out_dir / f"{input_path.stem}.musicxml"
             if out_path.exists():
                 return TaskResult(True, f"跳过(已存在): {out_path.name}", out_path)
 

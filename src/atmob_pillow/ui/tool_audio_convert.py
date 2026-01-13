@@ -89,7 +89,7 @@ class AudioConvertToolWidget(QWidget):
         self.cb_codec.addItem("PCM_S16LE (未压缩)", "pcm_s16le")
         self.cb_codec.addItem("PCM_S24LE (未压缩)", "pcm_s24le")
         self.cb_codec.addItem("PCM_S32LE (未压缩)", "pcm_s32le")
-        # 默认选择 PCM_S16LE
+        # 默认选择 PCM_S16LE（未压缩）
         self.cb_codec.setCurrentText("PCM_S16LE (未压缩)")
 
         # 声道
