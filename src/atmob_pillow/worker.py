@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from .processor import process_one_image
+from .tasks.registry import list_task_infos
 
 
 class Worker(QThread):
@@ -14,21 +15,39 @@ class Worker(QThread):
 
     def __init__(
         self,
+        task_id: str,
+        params: dict,
         input_dir: str,
         output_dir: str,
-        target_w: int,
-        target_h: int,
-        quality: int,
         parent=None,
     ) -> None:
         super().__init__(parent)
+        self._task_id = task_id
+        self._params = dict(params)
         self._input_dir = input_dir
         self._output_dir = output_dir
-        self._target_w = int(target_w)
-        self._target_h = int(target_h)
-        self._quality = int(quality)
+
+    def _create_task(self):
+        for info in list_task_infos():
+            if info.task_id == self._task_id:
+                return info.factory()
+        return None
 
     def run(self) -> None:
+        task = self._create_task()
+        if task is None:
+            self.log.emit(f"未知工具: {self._task_id}")
+            self.finished_ok.emit()
+            return
+
+        # 参数直接塞到对象上（保持简单）
+        for k, v in self._params.items():
+            if hasattr(task, k):
+                setattr(task, k, v)
+
+        concurrency = int(self._params.get("concurrency", 1) or 1)
+        concurrency = max(1, min(32, concurrency))
+
         in_dir = Path(self._input_dir)
         out_dir = Path(self._output_dir)
 
@@ -39,28 +58,39 @@ class Worker(QThread):
 
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # MVP：不递归，只扫描根目录；“图片就行” => 交给 Pillow 打开失败则当作非图片/坏文件
         candidates = [p for p in in_dir.iterdir() if p.is_file()]
+        if hasattr(task, "accept_file") and callable(getattr(task, "accept_file")):
+            candidates = [p for p in candidates if task.accept_file(p)]
+
         total = len(candidates)
         processed = 0
 
-        self.log.emit(f"开始扫描: {in_dir} (共 {total} 个文件)")
+        self.log.emit(f"开始扫描: {in_dir} (共 {total} 个文件), 并发数={concurrency}")
         self.progress_changed.emit(0, total)
 
-        for p in candidates:
-            # 串行处理
-            result = process_one_image(
-                input_path=p,
-                output_dir=out_dir,
-                target_w=self._target_w,
-                target_h=self._target_h,
-                quality=self._quality,
-            )
+        def _run_one(p: Path):
+            try:
+                result = task.process_one(p, out_dir)
+                msg = getattr(result, "message", str(result))
+                return True, msg
+            except Exception as e:
+                return False, f"失败: {p.name} ({e})"
 
-            # 无论成功/失败都算处理过一个文件（进度条语义：处理数/总数）
-            processed += 1
-            self.progress_changed.emit(processed, total)
-            self.log.emit(result.message)
+        if concurrency <= 1:
+            for p in candidates:
+                ok, msg = _run_one(p)
+                self.log.emit(msg)
+                processed += 1
+                self.progress_changed.emit(processed, total)
+        else:
+            # 线程池并发：适用于 ffmpeg 子进程任务；MIDI/music21 若有线程安全问题可将并发数设为 1
+            with ThreadPoolExecutor(max_workers=concurrency) as ex:
+                future_to_path = {ex.submit(_run_one, p): p for p in candidates}
+                for fut in as_completed(future_to_path):
+                    ok, msg = fut.result()
+                    self.log.emit(msg)
+                    processed += 1
+                    self.progress_changed.emit(processed, total)
 
         self.log.emit("全部处理完成")
         self.finished_ok.emit()
