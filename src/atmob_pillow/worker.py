@@ -5,13 +5,13 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from .tasks.registry import list_task_infos
+from .tasks.registry import create_task
 
 
 class Worker(QThread):
     progress_changed = Signal(int, int)  # processed, total
     log = Signal(str)
-    finished_ok = Signal()
+    finished_ok = Signal(str)  # output_dir
 
     def __init__(
         self,
@@ -27,20 +27,14 @@ class Worker(QThread):
         self._input_dir = input_dir
         self._output_dir = output_dir
 
-    def _create_task(self):
-        for info in list_task_infos():
-            if info.task_id == self._task_id:
-                return info.factory()
-        return None
-
     def run(self) -> None:
-        task = self._create_task()
+        task = create_task(self._task_id, self._params)
         if task is None:
-            self.log.emit(f"未知工具: {self._task_id}")
-            self.finished_ok.emit()
+            self.log.emit(f"未知工具或参数不完整: {self._task_id}")
+            self.finished_ok.emit(self._output_dir)
             return
 
-        # 参数直接塞到对象上（保持简单）
+        # 参数塞到 task 对象上
         for k, v in self._params.items():
             if hasattr(task, k):
                 setattr(task, k, v)
@@ -48,15 +42,38 @@ class Worker(QThread):
         concurrency = int(self._params.get("concurrency", 1) or 1)
         concurrency = max(1, min(32, concurrency))
 
-        in_dir = Path(self._input_dir)
         out_dir = Path(self._output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        if not in_dir.exists() or not in_dir.is_dir():
-            self.log.emit(f"输入文件夹无效: {in_dir}")
-            self.finished_ok.emit()
+        mode = (self._params.get("image_mode") or "batch").lower()
+        single_file = (self._params.get("single_file") or "").strip()
+
+        # 单文件模式
+        if mode == "single" and single_file:
+            p = Path(single_file)
+            if not p.exists() or not p.is_file():
+                self.log.emit(f"输入文件无效: {p}")
+                self.finished_ok.emit(str(out_dir))
+                return
+
+            self.progress_changed.emit(0, 1)
+            try:
+                result = task.process_one(p, out_dir)
+                msg = getattr(result, "message", str(result))
+                self.log.emit(msg)
+            except Exception as e:
+                self.log.emit(f"失败: {p.name} ({e})")
+            self.progress_changed.emit(1, 1)
+            self.log.emit("全部处理完成")
+            self.finished_ok.emit(str(out_dir))
             return
 
-        out_dir.mkdir(parents=True, exist_ok=True)
+        # 批量模式
+        in_dir = Path(self._input_dir)
+        if not in_dir.exists() or not in_dir.is_dir():
+            self.log.emit(f"输入文件夹无效: {in_dir}")
+            self.finished_ok.emit(str(out_dir))
+            return
 
         candidates = [p for p in in_dir.iterdir() if p.is_file()]
         if hasattr(task, "accept_file") and callable(getattr(task, "accept_file")):
@@ -72,25 +89,24 @@ class Worker(QThread):
             try:
                 result = task.process_one(p, out_dir)
                 msg = getattr(result, "message", str(result))
-                return True, msg
+                return msg
             except Exception as e:
-                return False, f"失败: {p.name} ({e})"
+                return f"失败: {p.name} ({e})"
 
         if concurrency <= 1:
             for p in candidates:
-                ok, msg = _run_one(p)
+                msg = _run_one(p)
                 self.log.emit(msg)
                 processed += 1
                 self.progress_changed.emit(processed, total)
         else:
-            # 线程池并发：适用于 ffmpeg 子进程任务；MIDI/music21 若有线程安全问题可将并发数设为 1
             with ThreadPoolExecutor(max_workers=concurrency) as ex:
-                future_to_path = {ex.submit(_run_one, p): p for p in candidates}
-                for fut in as_completed(future_to_path):
-                    ok, msg = fut.result()
+                futures = [ex.submit(_run_one, p) for p in candidates]
+                for fut in as_completed(futures):
+                    msg = fut.result()
                     self.log.emit(msg)
                     processed += 1
                     self.progress_changed.emit(processed, total)
 
         self.log.emit("全部处理完成")
-        self.finished_ok.emit()
+        self.finished_ok.emit(str(out_dir))

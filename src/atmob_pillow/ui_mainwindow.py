@@ -24,9 +24,9 @@ from PySide6.QtWidgets import (
 
 from .tasks.registry import list_task_infos
 from .ui.tool_audio_convert import AudioConvertToolWidget
-from .ui.tool_image_convert import ImageConvertToolWidget
-from .ui.tool_image_resize import ImageResizeToolWidget
+from .ui.tool_image_tools import ImageToolsWidget
 from .ui.tool_midi_to_xml import MidiToXmlToolWidget
+from .utils_open import open_folder
 from .worker import Worker
 
 
@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        # 输入/输出
+        # 输入/输出（批量模式用；图片单文件模式会忽略 input_dir/output_dir，转用图片页内部的 single_*）
         gb_io = QGroupBox("输入/输出")
         io_layout = QHBoxLayout(gb_io)
         io_layout.setContentsMargins(14, 16, 14, 14)
@@ -208,15 +208,10 @@ class MainWindow(QMainWindow):
         self.params_stack = QStackedWidget()
         params_outer.addWidget(self.params_stack)
 
-        # 页面：图片尺寸
-        self.image_resize_widget = ImageResizeToolWidget()
-        idx_img_resize = self.params_stack.addWidget(self.image_resize_widget)
-        self._page_index_by_task_id["image.resize"] = idx_img_resize
-
-        # 页面：图片转换
-        self.image_convert_widget = ImageConvertToolWidget()
-        idx_img_convert = self.params_stack.addWidget(self.image_convert_widget)
-        self._page_index_by_task_id["image.convert"] = idx_img_convert
+        # 页面：图片工具（内部再切换 尺寸/转换 + 批量/单文件）
+        self.image_tools_widget = ImageToolsWidget()
+        idx_img_tools = self.params_stack.addWidget(self.image_tools_widget)
+        self._page_index_by_task_id["image.tools"] = idx_img_tools
 
         # 页面：音频
         self.audio_convert_widget = AudioConvertToolWidget()
@@ -321,81 +316,90 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "正在处理中，请等待完成。")
             return
 
-        task_id = self._current_task_id()
-        if not task_id:
+        tool_id = self._current_task_id()
+        if not tool_id:
             QMessageBox.warning(self, "提示", "请选择一个工具。")
             return
 
-        input_dir = self.ed_input.text().strip()
-        if not input_dir:
-            QMessageBox.warning(self, "提示", "请先选择输入文件夹。")
-            return
+        # 默认输出目录（批量）：当前工作目录
+        batch_input_dir = self.ed_input.text().strip()
+        batch_output_dir = self.ed_output.text().strip() or str(Path.cwd())
 
-        output_dir = self.ed_output.text().strip()
-        if not output_dir:
-            output_dir = str(Path.cwd())
+        if tool_id == "image.tools":
+            params = self.image_tools_widget.get_params()
+            active_task_id = self.image_tools_widget.get_active_task_id()
+            params["active_task_id"] = active_task_id
 
-        # 根据工具获取参数 + 校验
-        if task_id == "image.resize":
-            params = self.image_resize_widget.get_params()
-            if params.get("target_w", 0) <= 0 and params.get("target_h", 0) <= 0:
-                QMessageBox.warning(self, "提示", "请至少设置宽度或高度其中一个（0 表示不限制）。")
-                return
-        elif task_id == "image.convert":
-            params = self.image_convert_widget.get_params()
-        elif task_id == "audio.convert":
+            mode = (params.get("image_mode") or "batch").lower()
+            if mode == "batch":
+                if not batch_input_dir:
+                    QMessageBox.warning(self, "提示", "请先选择输入文件夹。")
+                    return
+                input_dir = batch_input_dir
+                output_dir = batch_output_dir
+            else:
+                # 单文件模式：必须有 single_file；输出目录默认输入文件所在目录
+                single_file = (params.get("single_file") or "").strip()
+                if not single_file:
+                    QMessageBox.warning(self, "提示", "请拖入/选择一张图片。")
+                    return
+                output_dir = (params.get("single_out_dir") or str(Path(single_file).parent)).strip()
+                input_dir = str(Path(single_file).parent)
+
+            # resize 的宽高校验
+            if active_task_id == "image.resize":
+                if params.get("target_w", 0) <= 0 and params.get("target_h", 0) <= 0:
+                    QMessageBox.warning(self, "提示", "请至少设置宽度或高度其中一个（0 表示不限制）。")
+                    return
+
+            self.log.clear()
+            self._append_log("工具: 图片工具")
+            self._append_log(f"模式: {mode}")
+            self._append_log(f"功能: {active_task_id}")
+            self._append_log(f"输入: {input_dir}")
+            self._append_log(f"输出: {output_dir}")
+
+            task_id = "image.tools"
+
+        elif tool_id == "audio.convert":
+            task_id = tool_id
             params = self.audio_convert_widget.get_params()
+
+            if not batch_input_dir:
+                QMessageBox.warning(self, "提示", "请先选择输入文件夹。")
+                return
 
             start = params.get("cut_start", "")
             end = params.get("cut_end", "")
             if (start and not end) or (end and not start):
                 QMessageBox.warning(self, "提示", "剪切需要同时填写开始和结束时间，或两者都留空。")
                 return
-        elif task_id == "midi.to_xml":
+
+            self.log.clear()
+            self._append_log(f"工具: 音频转换")
+            self._append_log(f"输入: {batch_input_dir}")
+            self._append_log(f"输出: {batch_output_dir}")
+            input_dir = batch_input_dir
+            output_dir = batch_output_dir
+
+        elif tool_id == "midi.to_xml":
+            task_id = tool_id
             params = self.midi_to_xml_widget.get_params()
+
+            if not batch_input_dir:
+                QMessageBox.warning(self, "提示", "请先选择输入文件夹。")
+                return
+
+            self.log.clear()
+            self._append_log(f"工具: MIDI 转 MusicXML")
+            self._append_log(f"输入: {batch_input_dir}")
+            self._append_log(f"输出: {batch_output_dir}")
+            input_dir = batch_input_dir
+            output_dir = batch_output_dir
+
         else:
             QMessageBox.warning(self, "提示", "未实现的工具。")
             return
-
-        # 日志
-        self.log.clear()
-        self._append_log(f"工具: {self.list_tools.currentItem().text() if self.list_tools.currentItem() else task_id}")
-        self._append_log(f"输入: {input_dir}")
-        self._append_log(f"输出: {output_dir}")
-
-        if task_id == "image.resize":
-            self._append_log(
-                f"参数: width={params['target_w']}, height={params['target_h']}, quality={params['quality']}"
-            )
-        elif task_id == "image.convert":
-            self._append_log(
-                f"参数: filter={params['input_filter_mode']}, out={params['output_format']}, quality={params['quality']}, conc={params['concurrency']}"
-            )
-        elif task_id == "audio.convert":
-            codec = params.get("audio_codec") or "自动"
-            channels = params.get("channels") or "自动"
-            sr = params.get("sample_rate_hz") or "自动"
-            br = params.get("bitrate_kbps")
-            br_str = "无更改" if not br else f"{br}KBPS"
-            vol = params.get("volume_db") or "无更改"
-            cut_start = params.get("cut_start") or ""
-            cut_end = params.get("cut_end") or ""
-            cut_str = "无" if not (cut_start or cut_end) else f"{cut_start}-{cut_end}"
-
-            self._append_log(
-                "参数: "
-                f"format={params['output_format']}, "
-                f"codec={codec}, "
-                f"channels={channels}, "
-                f"sr={sr}, "
-                f"bitrate={br_str}, "
-                f"volume={vol}, "
-                f"cut={cut_str}"
-            )
-        elif task_id == "midi.to_xml":
-            quant_mode = params.get("quantize_mode", "off")
-            remove_rests = params.get("remove_tiny_rests", False)
-            self._append_log(f"参数: 量化={quant_mode}, 去除小休止符={'是' if remove_rests else '否'}")
 
         self.btn_start.setEnabled(False)
         self.btn_pick_input.setEnabled(False)
@@ -424,9 +428,16 @@ class MainWindow(QMainWindow):
         self.progress.setValue(processed)
         self.progress.setFormat(f"{processed}/{total}")
 
-    def on_finished(self) -> None:
+    def on_finished(self, output_dir: str) -> None:
         self.btn_start.setEnabled(True)
         self.btn_pick_input.setEnabled(True)
         self.btn_pick_output.setEnabled(True)
         self.list_tools.setEnabled(True)
         self._append_log("任务结束")
+
+        # 图片工具：完成后可自动打开输出目录
+        tool_id = self._current_task_id()
+        if tool_id == "image.tools":
+            params = self.image_tools_widget.get_params()
+            if params.get("open_out_dir", False):
+                open_folder(output_dir)
