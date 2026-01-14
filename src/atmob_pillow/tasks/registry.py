@@ -6,6 +6,7 @@ from typing import Callable
 from .audio_convert import AudioConvertTask
 from .image_convert import ImageConvertTask
 from .image_resize import ImageResizeTask
+from .image_resize_convert import ImageResizeConvertTask
 from .midi_to_xml import MidiToXmlTask
 
 
@@ -27,7 +28,7 @@ def list_task_infos() -> list[TaskInfo]:
 def create_task(task_id: str, params: dict):
     """用于 Worker 创建真正可执行的 task。
 
-    - UI 层的 image.tools 是一个“组合工具”，在这里根据 params['active_task_id'] 分发到 image.resize/image.convert。
+    - UI 层的 image.tools 是一个“组合工具”，在这里根据 params['active_task_id'] 分发到具体 task。
     """
 
     if task_id == "image.tools":
@@ -36,6 +37,8 @@ def create_task(task_id: str, params: dict):
             return ImageResizeTask()
         if active == "image.convert":
             return ImageConvertTask()
+        if active == "image.resize_convert":
+            return ImageResizeConvertTask()
         return None
 
     if task_id == AudioConvertTask.id:

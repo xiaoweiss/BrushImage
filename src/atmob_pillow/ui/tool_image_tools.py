@@ -29,7 +29,7 @@ class DropArea(QLabel):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumHeight(100)
+        self.setMinimumHeight(110)
         self.setText("拖拽单张图片到这里")
         self.setStyleSheet(
             "border: 2px dashed #d9d9d9; border-radius: 10px; padding: 18px; background: #fafafa; color: #666;"
@@ -67,14 +67,43 @@ class ImageToolsWidget(QWidget):
         # 功能
         lbl_func = QLabel("功能")
         self.cb_func = QComboBox()
-        self.cb_func.addItems(["尺寸调整", "格式转换"])
+        self.cb_func.addItems(["尺寸调整", "格式转换", "尺寸调整+格式转换"])
 
-        # 子参数页
+        # 子参数页：
+        # 0 尺寸调整
+        # 1 格式转换
+        # 2 组合（同时显示两套参数）
         self.stack = QStackedWidget()
-        self.page_resize = ImageResizeToolWidget()
-        self.page_convert = ImageConvertToolWidget()
-        self.stack.addWidget(self.page_resize)
-        self.stack.addWidget(self.page_convert)
+
+        # 注意：同一个 QWidget 不能同时被 addWidget 到两个父布局中。
+        # 所以“组合页”要使用独立实例。
+        self.page_resize_single = ImageResizeToolWidget()
+        self.page_convert_single = ImageConvertToolWidget()
+
+        self.page_combo = QWidget()
+        combo_layout = QVBoxLayout(self.page_combo)
+        combo_layout.setContentsMargins(0, 0, 0, 0)
+        combo_layout.setSpacing(10)
+
+        self.page_resize_combo = ImageResizeToolWidget()
+        self.page_convert_combo = ImageConvertToolWidget()
+
+        gb_resize = QGroupBox("尺寸调整")
+        gb_resize_layout = QVBoxLayout(gb_resize)
+        gb_resize_layout.setContentsMargins(10, 12, 10, 10)
+        gb_resize_layout.addWidget(self.page_resize_combo)
+
+        gb_convert = QGroupBox("格式转换")
+        gb_convert_layout = QVBoxLayout(gb_convert)
+        gb_convert_layout.setContentsMargins(10, 12, 10, 10)
+        gb_convert_layout.addWidget(self.page_convert_combo)
+
+        combo_layout.addWidget(gb_resize)
+        combo_layout.addWidget(gb_convert)
+
+        self.stack.addWidget(self.page_resize_single)
+        self.stack.addWidget(self.page_convert_single)
+        self.stack.addWidget(self.page_combo)
 
         # 单文件区域
         self.gb_single = QGroupBox("单文件")
@@ -145,16 +174,24 @@ class ImageToolsWidget(QWidget):
             self.ed_single_out.setText(path)
 
     def get_active_task_id(self) -> str:
-        if self.cb_func.currentText().startswith("尺寸"):
+        text = self.cb_func.currentText().strip()
+        if text == "尺寸调整":
             return "image.resize"
-        return "image.convert"
+        if text == "格式转换":
+            return "image.convert"
+        return "image.resize_convert"
 
     def get_params(self) -> dict:
-        base = (
-            self.page_resize.get_params()
-            if self.get_active_task_id() == "image.resize"
-            else self.page_convert.get_params()
-        )
+        active = self.get_active_task_id()
+
+        if active == "image.resize":
+            base = self.page_resize_single.get_params()
+        elif active == "image.convert":
+            base = self.page_convert_single.get_params()
+        else:
+            base = {}
+            base.update(self.page_resize_combo.get_params())
+            base.update(self.page_convert_combo.get_params())
 
         mode = "single" if self.cb_mode.currentText().startswith("单文件") else "batch"
 
